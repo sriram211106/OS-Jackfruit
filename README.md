@@ -2,11 +2,12 @@
 
 ## 1. Team Information
 
- **Name:** Sriram S
+ **Name:** Sriram S[Space][Space]
  **SRN:** PES1UG24CS469
 
 
- **Name:** Srijan Kumar
+
+ **Name:** Srijan Kumar[Space][Space]
  **SRN:** PES1UG24CS467
 
 ## 2. Build, Load, and Run Instructions
