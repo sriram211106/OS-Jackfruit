@@ -2,11 +2,12 @@
 
 ## 1. Team Information
 
-* **Name:** Sriram S
-* **SRN:** PES1UG24CS469
+ **Name:** Sriram S
+ **SRN:** PES1UG24CS469
 
-* **Name:** Srijan Kumar
-* **SRN:** PES1UG24CS467
+
+ **Name:** Srijan Kumar
+ **SRN:** PES1UG24CS467
 
 ## 2. Build, Load, and Run Instructions
 
@@ -68,21 +69,26 @@ sudo rmmod monitor
 ## 4. Engineering Analysis
 
 **1. Isolation Mechanisms**
+
 Our runtime achieves isolation primarily through the `clone()` system call utilizing Linux Namespaces. By passing flags like `CLONE_NEWPID` and `CLONE_NEWUTS`, the kernel creates a new process tree where the container process believes it is PID 1, completely isolating it from the host's process visibility. Filesystem isolation is achieved using `chroot()`, which modifies the container's root directory (`/`) to point to the isolated `rootfs-alpha` directory, trapping the process. Despite this isolation, the host kernel itself, hardware resources (CPU, Memory), and the network stack (since we did not implement `CLONE_NEWNET`) are still shared with all containers.
 
 **2. Supervisor and Process Lifecycle**
+
 A long-running parent supervisor is necessary to act as the "init" system for our containers. When `clone()` is called, the Supervisor becomes the parent of the container process. It must track metadata (PID, state) to answer CLI queries. Crucially, when a container process finishes, Linux transitions it into a "zombie" state. The Supervisor implements a `SIGCHLD` signal handler coupled with `waitpid(..., WNOHANG)` to reap these dead children, reading their exit status and freeing up slots in the kernel's process table.
 
 **3. IPC, Threads, and Synchronization**
+
 We utilize two distinct IPC mechanisms:
 * **Path A (Control):** UNIX Domain Sockets are used for the CLI to send structured requests to the Supervisor.
 * **Path B (Logging):** Unidirectional UNIX Pipes connect the container's `stdout/stderr` to the Supervisor's logging pipeline.
 The logging pipeline uses a Bounded Buffer shared among multiple threads (Producers reading the pipe, Consumers writing to disk). Without synchronization, race conditions would corrupt the buffer array index (`head`/`tail`) leading to lost logs or segfaults. We mitigated this using a `pthread_mutex_t` to ensure mutual exclusion, and `pthread_cond_t` (condition variables) to allow threads to sleep efficiently when the buffer is empty or full, avoiding CPU-intensive busy-waiting.
 
 **4. Memory Management and Enforcement**
+
 Resident Set Size (RSS) measures the actual physical RAM pages currently allocated to a process, excluding swapped memory or shared libraries not actively paged in. We implemented a dual-limit policy because memory usage naturally spikes; a Soft Limit acts as a polite warning mechanism for administrators, while a Hard Limit is a strict security boundary to prevent Out-Of-Memory (OOM) host crashes. Enforcement must occur in kernel space because user-space polling is too slow, easily bypassed, and lacks direct access to the kernel's internal `task_struct` and memory descriptor (`mm_struct`) necessary for accurate, unforgeable RSS measurement and immediate `SIGKILL` delivery.
 
 **5. Scheduling Behavior**
+
 The Linux Completely Fair Scheduler (CFS) allocates CPU time based on process weight, which is influenced by the `nice` value. In our experiment, we pitted a high-priority process (`nice -20`) against a low-priority process (`nice 19`). The scheduler's goal is fairness, but "fair" in CFS means proportional to priority. As a result, the CFS granted significantly larger time slices to the `-20` process, resulting in much higher throughput (accumulator hash loops completed) compared to the `19` process, which was frequently preempted to maintain system responsiveness.
 
 ## 5. Design Decisions and Tradeoffs
@@ -99,6 +105,7 @@ The Linux Completely Fair Scheduler (CFS) allocates CPU time based on process we
 ## 6. Scheduler Experiment Results
 
 **The Experiment:**
+
 We ran two instances of the `cpu_hog` workload simultaneously for 15 seconds. 
 * Container `fast`: Priority set to `-20` (Highest CPU priority)
 * Container `slow`: Priority set to `19` (Lowest CPU priority)
@@ -115,4 +122,5 @@ cpu_hog done duration=15 accumulator=5051585049546648993
 *(Note: Accumulator hashes will vary per run, but the `fast` hash indicates significantly more loops executed).*
 
 **Analysis:**
+
 The raw data clearly demonstrates the Completely Fair Scheduler (CFS) behavior. Because both workloads were entirely CPU-bound (infinite while-loops), neither voluntarily yielded the CPU. The CFS used their `nice` values to calculate their weight. The `fast` container was granted preferential scheduling, receiving larger CPU time slices and preempting the `slow` container. As a result, the high-priority container was able to execute thousands more calculation iterations within the exact same 15-second wall-clock timeframe.
